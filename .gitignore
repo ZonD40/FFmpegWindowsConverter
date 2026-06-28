@@ -3,6 +3,8 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+Release/
+
 # User-specific files
 *.rsuser
 *.suo
@@ -44,6 +46,10 @@ Generated\ Files/
 # MSTest test Results
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
+
+# ffmpeg
+**/ffmpeg.exe
+ffmpeg.exe
 
 # NUnit
 *.VisualState.xml
