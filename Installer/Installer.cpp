@@ -174,55 +174,19 @@ DWORD WINAPI installThread(LPVOID param) {
     if (!extractResource(IDR_PRESETS_JSON, dir + L"\\presets.json")) {
         fail(L"Не удалось извлечь presets.json"); return 1;
     }
+    if (!extractResource(IDI_TRAY_ICON, dir + L"\\icon.ico")) {
+        fail(L"Не удалось извлечь icon.ico"); return 1;
+    }
+    if (!extractResource(IDI_APP_ICON, dir + L"\\app.ico")) {
+        fail(L"Не удалось извлечь app.ico"); return 1;
+    }
 
     // 3. Скачиваем ffmpeg если его нет
     std::wstring ffmpegDst = dir + L"\\ffmpeg.exe";
-    if (!fs::exists(ffmpegDst)) {
-        PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 20,
-            reinterpret_cast<LPARAM>(L"Скачивание ffmpeg..."));
-
-        std::wstring zipPath = dir + L"\\ffmpeg.zip";
-
-        // Официальная сборка ffmpeg для Windows (essentials)
-        const wchar_t* url =
-            L"https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
-
-        DownloadCallback cb(g_hwnd);
-        HRESULT hr = URLDownloadToFileW(nullptr, url, zipPath.c_str(), 0, &cb);
-        if (FAILED(hr) || !fs::exists(zipPath)) {
-            fail(L"Не удалось скачать ffmpeg.\nПроверь интернет-соединение.");
-            return 1;
-        }
-
-        // 4. Распаковываем
-        PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 62,
-            reinterpret_cast<LPARAM>(L"Распаковка ffmpeg..."));
-        std::wstring extractDir = dir + L"\\ffmpeg_tmp";
-        if (!extractZip(zipPath, extractDir)) {
-            fail(L"Не удалось распаковать ffmpeg.zip");
-            return 1;
-        }
-
-        // 5. Находим ffmpeg.exe и копируем
-        PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 75,
-            reinterpret_cast<LPARAM>(L"Установка ffmpeg..."));
-        std::wstring foundFFmpeg = findFFmpeg(extractDir);
-        if (foundFFmpeg.empty()) {
-            fail(L"ffmpeg.exe не найден в архиве.");
-            return 1;
-        }
-        fs::copy_file(foundFFmpeg, ffmpegDst, fs::copy_options::overwrite_existing);
-
-        // Чистим временные файлы
-        try {
-            fs::remove(zipPath);
-            fs::remove_all(extractDir);
-        }
-        catch (...) {}
-    }
-    else {
-        PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 75,
-            reinterpret_cast<LPARAM>(L"ffmpeg уже установлен, пропускаем..."));
+    PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 60,
+        reinterpret_cast<LPARAM>(L"Установка ffmpeg..."));
+    if (!extractResource(IDR_FFMPEG_EXE, dir + L"\\ffmpeg.exe")) {
+        fail(L"Не удалось извлечь ffmpeg.exe"); return 1;
     }
 
     // 6. Регистрируем DLL через regsvr32
@@ -258,6 +222,13 @@ DWORD WINAPI installThread(LPVOID param) {
     // 7. Добавляем в реестр для удаления (Add/Remove Programs)
     PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 92,
         reinterpret_cast<LPARAM>(L"Регистрация в системе..."));
+
+    std::wstring uninstDst = dir + L"\\uninst.exe";
+
+    if (!extractResource(IDR_UNINSTALLER_EXE, uninstDst)) {
+        fail(L"Не удалось извлечь uninst.exe"); return 1;
+    }
+
     HKEY hk;
     RegCreateKeyExW(HKEY_LOCAL_MACHINE,
         L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\FFmpegConverter",
@@ -281,6 +252,7 @@ DWORD WINAPI installThread(LPVOID param) {
     regStr(L"QuietUninstallString", (uninstDst + L" /quiet").c_str());
     regStr(L"DisplayIcon", (dir + L"\\Converter.exe").c_str());
     regStr(L"URLInfoAbout", L"https://github.com/");
+    regStr(L"DisplayIcon", (dir + L"\\app.ico,0").c_str());
     regDword(L"NoModify", 1);
     regDword(L"NoRepair", 1);
     regDword(L"EstimatedSize", 80000); // ~80 MB в KB
@@ -349,19 +321,31 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         EnableWindow(g_btnUninstall, TRUE);
 
         if (wParam == 0) {
-            SetWindowTextW(g_labelStatus, L"✅ Установка завершена! Перезапусти Проводник.");
-            MessageBoxW(hwnd,
+            SetWindowTextW(g_labelStatus, L"✅ Установка завершена!");
+
+            // Спрашиваем про перезапуск проводника
+            int restartRes = MessageBoxW(g_hwnd,
+                L"Для завершения установки необходимо перезапустить проводник.\nСделать это сейчас?",
+                L"Перезапуск проводника", MB_YESNO | MB_ICONQUESTION);
+            if (restartRes == IDYES) {
+                runAndWait(L"taskkill /f /im explorer.exe");
+                Sleep(1500);
+                ShellExecuteW(nullptr, nullptr, L"explorer.exe", nullptr, nullptr, SW_SHOW);
+            }
+
+            MessageBoxW(g_hwnd,
                 L"FFmpeg Converter установлен!\n\n"
                 L"Выдели любой видео/аудио/изображение файл,\n"
-                L"правой кнопкой → «Convert with FFmpeg».\n\n"
-                L"Если меню не появилось — перезапусти Проводник\n"
-                L"или выйди и войди в Windows.",
+                L"правой кнопкой → «FFmpeg».",
                 L"Установка завершена", MB_OK | MB_ICONINFORMATION);
+
+            DestroyWindow(g_hwnd); // ← закрываем installer
         }
         else {
             SetWindowTextW(g_labelStatus, L"✅ Удаление завершено.");
-            MessageBoxW(hwnd, L"FFmpeg Converter удалён.",
+            MessageBoxW(g_hwnd, L"FFmpeg Converter удалён.",
                 L"Удаление завершено", MB_OK | MB_ICONINFORMATION);
+            DestroyWindow(g_hwnd);
         }
         return 0;
     }
@@ -431,7 +415,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         HDC hdc = reinterpret_cast<HDC>(wParam);
         SetBkColor(hdc, RGB(245, 245, 245));
         SetTextColor(hdc, RGB(30, 30, 30));
-        return reinterpret_cast<LRESULT>(GetStockObject(WHITE_BRUSH));
+        // Возвращаем кисть точно того же цвета что фон окна
+        static HBRUSH hBrush = CreateSolidBrush(RGB(245, 245, 245));
+        return reinterpret_cast<LRESULT>(hBrush);
     }
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -450,7 +436,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
     wc.lpszClassName = L"FFmpegInstallerWnd";
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
+
+    // Иконка окна installer
+    HICON hAppIcon = (HICON)LoadImageW(GetModuleHandleW(nullptr),
+        MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE);
+    wc.hIcon = hAppIcon;
+    wc.hIconSm = (HICON)LoadImageW(GetModuleHandleW(nullptr),
+        MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON, 16, 16, 0);
+
     RegisterClassExW(&wc);
+
 
     int W = 500, H = 260;
     int sx = GetSystemMetrics(SM_CXSCREEN);

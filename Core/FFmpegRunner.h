@@ -108,6 +108,17 @@ public:
         onProgress(info);
         return true;
     }
+    static std::wstring makeUniqueOutputPath(const std::wstring& base, const std::wstring& ext) {
+        namespace fs = std::filesystem;
+        std::wstring candidate = base + ext;
+        if (!fs::exists(candidate)) return candidate;
+
+        for (int i = 1; i < 1000; i++) {
+            candidate = base + L" (" + std::to_wstring(i) + L")" + ext;
+            if (!fs::exists(candidate)) return candidate;
+        }
+        return candidate; // fallback
+    }
 
 private:
     static std::string wstringToString(const std::wstring& ws) {

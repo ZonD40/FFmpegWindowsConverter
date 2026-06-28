@@ -219,12 +219,41 @@ STDMETHODIMP FFmpegShellExt::QueryContextMenu(
     }
 
     // Вставляем подменю в контекстное меню Explorer
+    // Загружаем иконку из папки DLL
+    std::wstring iconPath = getInstallDir() + L"\\icon.ico";
+    HICON hIcon = (HICON)LoadImageW(nullptr, iconPath.c_str(),
+        IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
+
+    HBITMAP hBitmap = nullptr;
+    if (hIcon) {
+        // Конвертируем HICON в HBITMAP с поддержкой прозрачности
+        HDC hdcScreen = GetDC(nullptr);
+        HDC hdcMem = CreateCompatibleDC(hdcScreen);
+        BITMAPINFO bmi{};
+        bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
+        bmi.bmiHeader.biWidth = 16;
+        bmi.bmiHeader.biHeight = -16;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+        void* pvBits = nullptr;
+        hBitmap = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pvBits, nullptr, 0);
+        HBITMAP hOld = (HBITMAP)SelectObject(hdcMem, hBitmap);
+        DrawIconEx(hdcMem, 0, 0, hIcon, 16, 16, 0, nullptr, DI_NORMAL);
+        SelectObject(hdcMem, hOld);
+        DeleteDC(hdcMem);
+        ReleaseDC(nullptr, hdcScreen);
+        DestroyIcon(hIcon);
+    }
+
     MENUITEMINFOW mii{};
     mii.cbSize = sizeof(mii);
     mii.fMask = MIIM_SUBMENU | MIIM_STRING | MIIM_ID;
+    if (hBitmap) mii.fMask |= MIIM_BITMAP;
     mii.wID = idCmdFirst + MAX_MENU_ITEMS;
     mii.hSubMenu = hSub;
-    mii.dwTypeData = const_cast<wchar_t*>(L"?? FFmpeg");
+    mii.hbmpItem = hBitmap;
+    mii.dwTypeData = const_cast<wchar_t*>(L"FFmpeg");
     InsertMenuItemW(hmenu, indexMenu, TRUE, &mii);
 
     // Разделитель после нашего пункта

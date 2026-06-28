@@ -41,6 +41,7 @@ HWND g_labelStatus = nullptr;
 HWND g_labelFile = nullptr;
 HWND g_btnCancel = nullptr;
 bool g_cancelled = false;
+HANDLE g_hDoneEvent = nullptr;
 
 struct ConversionArgs {
     std::vector<std::wstring> inputFiles;
@@ -82,7 +83,8 @@ DWORD WINAPI conversionThread(LPVOID param) {
 
         ConversionTask task;
         task.inputFile = file;
-        task.outputFile = (p.parent_path() / (p.stem().wstring() + args->targetExt)).wstring();
+        std::wstring basePath = (p.parent_path() / p.stem()).wstring();
+        task.outputFile = FFmpegRunner::makeUniqueOutputPath(basePath, args->targetExt);
         task.ffmpegArgs = ffmpegArgs;
         tasks.push_back(task);
     }
@@ -105,6 +107,7 @@ DWORD WINAPI conversionThread(LPVOID param) {
         });
 
     delete args;
+    if (g_hDoneEvent) SetEvent(g_hDoneEvent);
     return 0;
 }
 
@@ -152,6 +155,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SetWindowTextW(g_btnCancel, L"Закрыть");
 
         delete pm;
+
+        // Закрываем окно через 100 милисекунд
+        SetTimer(g_hwnd, 1, 100, nullptr);
         return 0;
     }
     case WM_CONVERSION_ERROR: {
@@ -185,8 +191,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         HDC hdc = reinterpret_cast<HDC>(wParam);
         SetBkColor(hdc, RGB(245, 245, 245));
         SetTextColor(hdc, RGB(30, 30, 30));
-        return reinterpret_cast<LRESULT>(GetStockObject(WHITE_BRUSH));
+        // Возвращаем кисть точно того же цвета что фон окна
+        static HBRUSH hBrush = CreateSolidBrush(RGB(245, 245, 245));
+        return reinterpret_cast<LRESULT>(hBrush);
     }
+    case WM_TIMER:
+        if (wParam == 1) {
+            KillTimer(hwnd, 1);
+            DestroyWindow(hwnd);
+        }
+        return 0;
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
@@ -208,7 +222,7 @@ HWND createWindow(const std::wstring& targetExt, int fileCount) {
     wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
     RegisterClassExW(&wc);
 
-    int W = 480, H = 220;
+    int W = 480, H = 240;
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
 
@@ -275,7 +289,7 @@ HWND createWindow(const std::wstring& targetExt, int fileCount) {
     // Кнопка Отмена
     g_btnCancel = CreateWindowW(L"BUTTON", L"Отмена",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        350, 168, 110, 32, hwnd, (HMENU)IDC_BTN_CANCEL, nullptr, nullptr);
+        350, 190, 110, 32, hwnd, (HMENU)IDC_BTN_CANCEL, nullptr, nullptr);
     SendMessage(g_btnCancel, WM_SETFONT, (WPARAM)hFontNormal, TRUE);
 
     ShowWindow(hwnd, SW_SHOW);
@@ -328,19 +342,36 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         return 1;
     }
 
-    g_hwnd = createWindow(args.targetExt, static_cast<int>(args.files.size()));
+    bool showWindow = false;
+    if (args.files.size() > 1) {
+        showWindow = true;
+    }
+    else if (args.files.size() == 1) {
+        WIN32_FILE_ATTRIBUTE_DATA fa{};
+        if (GetFileAttributesExW(args.files[0].c_str(), GetFileExInfoStandard, &fa)) {
+            ULONGLONG size = ((ULONGLONG)fa.nFileSizeHigh << 32) | fa.nFileSizeLow;
+            showWindow = size > 10ULL * 1024 * 1024;
+        }
+    }
 
-    // Запускаем конвертацию в отдельном потоке
     ConversionArgs* convArgs = new ConversionArgs{
         args.files, args.targetExt, args.ffmpegPath, args.presetsPath
     };
-    CreateThread(nullptr, 0, conversionThread, convArgs, 0, nullptr);
 
-    // Message loop
-    MSG msg;
-    while (GetMessageW(&msg, nullptr, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
+    if (showWindow) {
+        g_hwnd = createWindow(args.targetExt, static_cast<int>(args.files.size()));
+        CreateThread(nullptr, 0, conversionThread, convArgs, 0, nullptr);
+        MSG msg;
+        while (GetMessageW(&msg, nullptr, 0, 0)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+    else {
+        g_hDoneEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        CreateThread(nullptr, 0, conversionThread, convArgs, 0, nullptr);
+        WaitForSingleObject(g_hDoneEvent, INFINITE);
+        CloseHandle(g_hDoneEvent);
     }
     return 0;
 }
