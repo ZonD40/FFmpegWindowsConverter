@@ -1,0 +1,92 @@
+{
+  "presets": [
+    {
+      "name": "Video",
+      "extensions": [ ".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".webm", ".m4v" ],
+      "conversions": [
+        {
+          "label": "Convert to MP4",
+          "targetExt": ".mp4",
+          "ffmpegArgs": "-c:v libx264 -c:a aac -preset fast"
+        },
+        {
+          "label": "Convert to MKV",
+          "targetExt": ".mkv",
+          "ffmpegArgs": "-c:v libx264 -c:a aac"
+        },
+        {
+          "label": "Convert to AVI",
+          "targetExt": ".avi",
+          "ffmpegArgs": "-c:v libxvid -c:a mp3"
+        },
+        {
+          "label": "Convert to WebM",
+          "targetExt": ".webm",
+          "ffmpegArgs": "-c:v libvpx-vp9 -c:a libopus"
+        },
+        {
+          "label": "Convert to GIF",
+          "targetExt": ".gif",
+          "ffmpegArgs": "-vf fps=10,scale=480:-1:flags=lanczos -loop 0"
+        }
+      ]
+    },
+    {
+      "name": "Audio",
+      "extensions": [ ".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus" ],
+      "conversions": [
+        {
+          "label": "Convert to MP3",
+          "targetExt": ".mp3",
+          "ffmpegArgs": "-c:a libmp3lame -q:a 2"
+        },
+        {
+          "label": "Convert to WAV",
+          "targetExt": ".wav",
+          "ffmpegArgs": "-c:a pcm_s16le"
+        },
+        {
+          "label": "Convert to FLAC",
+          "targetExt": ".flac",
+          "ffmpegArgs": "-c:a flac"
+        },
+        {
+          "label": "Convert to OGG",
+          "targetExt": ".ogg",
+          "ffmpegArgs": "-c:a libvorbis -q:a 4"
+        },
+        {
+          "label": "Convert to AAC",
+          "targetExt": ".aac",
+          "ffmpegArgs": "-c:a aac -b:a 192k"
+        }
+      ]
+    },
+    {
+      "name": "Image",
+      "extensions": [ ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".gif" ],
+      "conversions": [
+        {
+          "label": "Convert to JPG",
+          "targetExt": ".jpg",
+          "ffmpegArgs": "-q:v 2"
+        },
+        {
+          "label": "Convert to PNG",
+          "targetExt": ".png",
+          "ffmpegArgs": ""
+        },
+        {
+          "label": "Convert to WebP",
+          "targetExt": ".webp",
+          "ffmpegArgs": "-quality 90"
+        },
+        {
+          "label": "Convert to BMP",
+          "targetExt": ".bmp",
+          "ffmpegArgs": ""
+        }
+      ]
+    }
+  ]
+}

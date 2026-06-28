@@ -1,0 +1,13 @@
+#include <winuser.h>
+#include "resource.h"
+
+1 RT_MANIFEST BEGIN
+"<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?>"
+"<assembly xmlns=""urn:schemas-microsoft-com:asm.v1"" manifestVersion=""1.0"">"
+"<trustInfo xmlns=""urn:schemas-microsoft-com:asm.v3"">"
+"<security><requestedPrivileges>"
+"<requestedExecutionLevel level=""requireAdministrator"" uiAccess=""false""/>"
+"</requestedPrivileges></security></trustInfo></assembly>"
+END
+
+IDR_PRESETS_JSON RCDATA "..\\presets.json"
