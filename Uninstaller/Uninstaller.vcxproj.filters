@@ -24,7 +24,4 @@
       <Filter>Файлы ресурсов</Filter>
     </ResourceCompile>
   </ItemGroup>
-  <ItemGroup>
-    <Manifest Include="Uninstaller.manifest" />
-  </ItemGroup>
 </Project>
