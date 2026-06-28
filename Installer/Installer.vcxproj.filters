@@ -29,4 +29,11 @@
       <Filter>Файлы ресурсов</Filter>
     </ResourceCompile>
   </ItemGroup>
+  <ItemGroup>
+    <Manifest Include="Installer.manifest" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Installer.aps" />
+    <None Include="Installer.vcxproj.user" />
+  </ItemGroup>
 </Project>

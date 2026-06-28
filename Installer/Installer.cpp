@@ -159,32 +159,20 @@ DWORD WINAPI installThread(LPVOID param) {
     try { fs::create_directories(dir); }
     catch (...) { fail(L"Не удалось создать папку установки.\nЗапусти установщик от имени администратора."); return 1; }
 
-    // 2. Копируем файлы из папки установщика
     PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 10,
-        reinterpret_cast<LPARAM>(L"Копирование файлов..."));
+        reinterpret_cast<LPARAM>(L"Извлечение файлов..."));
 
-    // Converter.exe и ShellExtension.dll копируем рядом с installer
-    std::wstring srcDir = getInstallerDir();
-    for (const auto& f : std::vector<std::wstring>{ L"Converter.exe", L"ShellExtension.dll" }) {
-        std::wstring src = srcDir + L"\\" + f;
-        std::wstring dst = dir + L"\\" + f;
-        if (fs::exists(src)) {
-            try { fs::copy_file(src, dst, fs::copy_options::overwrite_existing); }
-            catch (...) { fail((L"Не удалось скопировать: " + f).c_str()); return 1; }
-        }
+    if (!extractResource(IDR_CONVERTER_EXE, dir + L"\\Converter.exe")) {
+        fail(L"Не удалось извлечь Converter.exe"); return 1;
     }
-
-    // presets.json извлекаем из ресурсов exe
+    if (!extractResource(IDR_SHELLEXT_DLL, dir + L"\\ShellExtension.dll")) {
+        fail(L"Не удалось извлечь ShellExtension.dll"); return 1;
+    }
+    if (!extractResource(IDR_UNINSTALLER_EXE, dir + L"\\uninst.exe")) {
+        fail(L"Не удалось извлечь uninst.exe"); return 1;
+    }
     if (!extractResource(IDR_PRESETS_JSON, dir + L"\\presets.json")) {
-        fail(L"Не удалось извлечь presets.json");
-        return 1;
-    }
-
-    // Копируем uninst.exe
-    std::wstring uninstSrc = srcDir + L"\\Uninstaller.exe";
-    std::wstring uninstDst = dir + L"\\uninst.exe";
-    if (fs::exists(uninstSrc)) {
-        fs::copy_file(uninstSrc, uninstDst, fs::copy_options::overwrite_existing);
+        fail(L"Не удалось извлечь presets.json"); return 1;
     }
 
     // 3. Скачиваем ffmpeg если его нет
