@@ -2,38 +2,174 @@
   "presets": [
     {
       "name": "Video",
-      "extensions": [ ".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".webm", ".m4v" ],
+      "extensions": [
+        ".mp4",
+        ".mov",
+        ".avi",
+        ".mkv",
+        ".wmv",
+        ".flv",
+        ".webm",
+        ".m4v",
+        ".3gp",
+        ".3g2",
+        ".ts",
+        ".mts",
+        ".m2ts",
+        ".vob",
+        ".ogv",
+        ".rm",
+        ".rmvb",
+        ".asf",
+        ".f4v",
+        ".hevc",
+        ".h264",
+        ".h265",
+        ".mxf",
+        ".dv",
+        ".wtv",
+        ".divx",
+        ".xvid"
+      ],
       "conversions": [
         {
-          "label": "Convert to MP4",
+          "label": "Convert to MP4 (H.264)",
           "targetExt": ".mp4",
-          "ffmpegArgs": "-c:v libx264 -c:a aac -preset fast"
+          "ffmpegArgs": "-c:v libx264 -c:a aac -preset fast -movflags +faststart"
         },
         {
-          "label": "Convert to MKV",
+          "label": "Convert to MP4 (H.265/HEVC)",
+          "targetExt": ".mp4",
+          "ffmpegArgs": "-c:v libx265 -c:a aac -preset fast -movflags +faststart -tag:v hvc1"
+        },
+        {
+          "label": "Convert to MKV (H.264)",
           "targetExt": ".mkv",
           "ffmpegArgs": "-c:v libx264 -c:a aac"
         },
         {
+          "label": "Convert to MKV (H.265/HEVC)",
+          "targetExt": ".mkv",
+          "ffmpegArgs": "-c:v libx265 -c:a aac"
+        },
+        {
+          "label": "Convert to MOV",
+          "targetExt": ".mov",
+          "ffmpegArgs": "-c:v libx264 -c:a aac -movflags +faststart"
+        },
+        {
           "label": "Convert to AVI",
           "targetExt": ".avi",
-          "ffmpegArgs": "-c:v libxvid -c:a mp3"
+          "ffmpegArgs": "-c:v libxvid -c:a libmp3lame -q:v 4"
         },
         {
-          "label": "Convert to WebM",
+          "label": "Convert to WebM (VP9)",
           "targetExt": ".webm",
-          "ffmpegArgs": "-c:v libvpx-vp9 -c:a libopus"
+          "ffmpegArgs": "-c:v libvpx-vp9 -c:a libopus -b:v 0 -crf 33"
         },
         {
-          "label": "Convert to GIF",
+          "label": "Convert to FLV",
+          "targetExt": ".flv",
+          "ffmpegArgs": "-c:v libx264 -c:a aac -ar 44100"
+        },
+        {
+          "label": "Convert to 3GP",
+          "targetExt": ".3gp",
+          "ffmpegArgs": "-c:v libx264 -c:a aac -vf scale=320:-2 -b:v 400k -b:a 64k"
+        },
+        {
+          "label": "Convert to TS (MPEG-2)",
+          "targetExt": ".ts",
+          "ffmpegArgs": "-c:v libx264 -c:a aac -f mpegts"
+        },
+        {
+          "label": "Convert to MTS/AVCHD",
+          "targetExt": ".mts",
+          "ffmpegArgs": "-c:v libx264 -c:a aac -f mpegts"
+        },
+        {
+          "label": "Convert to GIF (animated)",
           "targetExt": ".gif",
-          "ffmpegArgs": "-vf fps=10,scale=480:-1:flags=lanczos -loop 0"
+          "ffmpegArgs": "-vf fps=10,scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse -loop 0"
+        },
+        {
+          "label": "Convert to WMV",
+          "targetExt": ".wmv",
+          "ffmpegArgs": "-c:v wmv2 -c:a wmav2"
+        },
+        {
+          "label": "Convert to OGV",
+          "targetExt": ".ogv",
+          "ffmpegArgs": "-c:v libtheora -c:a libvorbis -q:v 6"
+        },
+        {
+          "label": "Extract audio to MP3",
+          "targetExt": ".mp3",
+          "ffmpegArgs": "-vn -c:a libmp3lame -q:a 2"
+        },
+        {
+          "label": "Extract audio to AAC",
+          "targetExt": ".aac",
+          "ffmpegArgs": "-vn -c:a aac -b:a 192k"
+        }
+      ]
+    },
+    {
+      "name": "Apple/HEIF",
+      "extensions": [
+        ".heic",
+        ".heif",
+        ".mov",
+        ".m4v"
+      ],
+      "conversions": [
+        {
+          "label": "Convert to MP4 (H.264)",
+          "targetExt": ".mp4",
+          "ffmpegArgs": "-c:v libx264 -c:a aac -preset fast -movflags +faststart"
+        },
+        {
+          "label": "Convert to JPG",
+          "targetExt": ".jpg",
+          "ffmpegArgs": "-vframes 1 -q:v 2"
+        },
+        {
+          "label": "Convert to PNG",
+          "targetExt": ".png",
+          "ffmpegArgs": "-vframes 1"
+        },
+        {
+          "label": "Convert to WebP",
+          "targetExt": ".webp",
+          "ffmpegArgs": "-vframes 1 -quality 90"
         }
       ]
     },
     {
       "name": "Audio",
-      "extensions": [ ".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus" ],
+      "extensions": [
+        ".mp3",
+        ".wav",
+        ".flac",
+        ".ogg",
+        ".m4a",
+        ".aac",
+        ".wma",
+        ".opus",
+        ".ape",
+        ".tta",
+        ".wv",
+        ".mka",
+        ".ac3",
+        ".dts",
+        ".eac3",
+        ".amr",
+        ".au",
+        ".aiff",
+        ".caf",
+        ".ra",
+        ".rm"
+      ],
       "conversions": [
         {
           "label": "Convert to MP3",
@@ -41,50 +177,176 @@
           "ffmpegArgs": "-c:a libmp3lame -q:a 2"
         },
         {
+          "label": "Convert to MP3 (320k)",
+          "targetExt": ".mp3",
+          "ffmpegArgs": "-c:a libmp3lame -b:a 320k"
+        },
+        {
           "label": "Convert to WAV",
           "targetExt": ".wav",
           "ffmpegArgs": "-c:a pcm_s16le"
         },
         {
-          "label": "Convert to FLAC",
-          "targetExt": ".flac",
-          "ffmpegArgs": "-c:a flac"
+          "label": "Convert to WAV (32-bit float)",
+          "targetExt": ".wav",
+          "ffmpegArgs": "-c:a pcm_f32le"
         },
         {
-          "label": "Convert to OGG",
+          "label": "Convert to FLAC",
+          "targetExt": ".flac",
+          "ffmpegArgs": "-c:a flac -compression_level 8"
+        },
+        {
+          "label": "Convert to OGG (Vorbis)",
           "targetExt": ".ogg",
           "ffmpegArgs": "-c:a libvorbis -q:a 4"
+        },
+        {
+          "label": "Convert to Opus",
+          "targetExt": ".opus",
+          "ffmpegArgs": "-c:a libopus -b:a 128k"
         },
         {
           "label": "Convert to AAC",
           "targetExt": ".aac",
           "ffmpegArgs": "-c:a aac -b:a 192k"
+        },
+        {
+          "label": "Convert to M4A (AAC)",
+          "targetExt": ".m4a",
+          "ffmpegArgs": "-c:a aac -b:a 192k -movflags +faststart"
+        },
+        {
+          "label": "Convert to WMA",
+          "targetExt": ".wma",
+          "ffmpegArgs": "-c:a wmav2 -b:a 192k"
+        },
+        {
+          "label": "Convert to AIFF",
+          "targetExt": ".aiff",
+          "ffmpegArgs": "-c:a pcm_s16be"
+        },
+        {
+          "label": "Convert to AC3",
+          "targetExt": ".ac3",
+          "ffmpegArgs": "-c:a ac3 -b:a 192k"
+        },
+        {
+          "label": "Convert to TTA (lossless)",
+          "targetExt": ".tta",
+          "ffmpegArgs": "-c:a tta"
+        },
+        {
+          "label": "Convert to WavPack (lossless)",
+          "targetExt": ".wv",
+          "ffmpegArgs": "-c:a wavpack"
         }
       ]
     },
     {
       "name": "Image",
-      "extensions": [ ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".gif" ],
+      "extensions": [
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".bmp",
+        ".webp",
+        ".tiff",
+        ".tif",
+        ".gif",
+        ".avif",
+        ".heic",
+        ".heif",
+        ".ico",
+        ".psd",
+        ".exr",
+        ".hdr",
+        ".tga",
+        ".dds"
+      ],
       "conversions": [
         {
           "label": "Convert to JPG",
           "targetExt": ".jpg",
-          "ffmpegArgs": "-q:v 2"
+          "ffmpegArgs": "-vframes 1 -q:v 2"
+        },
+        {
+          "label": "Convert to JPG (high quality)",
+          "targetExt": ".jpg",
+          "ffmpegArgs": "-vframes 1 -q:v 1"
         },
         {
           "label": "Convert to PNG",
           "targetExt": ".png",
-          "ffmpegArgs": ""
+          "ffmpegArgs": "-vframes 1"
         },
         {
           "label": "Convert to WebP",
           "targetExt": ".webp",
-          "ffmpegArgs": "-quality 90"
+          "ffmpegArgs": "-vframes 1 -quality 90"
+        },
+        {
+          "label": "Convert to WebP (lossless)",
+          "targetExt": ".webp",
+          "ffmpegArgs": "-vframes 1 -lossless 1"
+        },
+        {
+          "label": "Convert to AVIF",
+          "targetExt": ".avif",
+          "ffmpegArgs": "-vframes 1 -c:v libaom-av1 -crf 23 -still-picture 1"
         },
         {
           "label": "Convert to BMP",
           "targetExt": ".bmp",
-          "ffmpegArgs": ""
+          "ffmpegArgs": "-vframes 1"
+        },
+        {
+          "label": "Convert to TIFF",
+          "targetExt": ".tiff",
+          "ffmpegArgs": "-vframes 1"
+        },
+        {
+          "label": "Convert to ICO",
+          "targetExt": ".ico",
+          "ffmpegArgs": "-vframes 1 -vf scale=256:256"
+        }
+      ]
+    },
+    {
+      "name": "Camera RAW",
+      "extensions": [
+        ".cr2",
+        ".cr3",
+        ".nef",
+        ".arw",
+        ".dng",
+        ".raf",
+        ".orf",
+        ".rw2",
+        ".pef",
+        ".srw",
+        ".raw"
+      ],
+      "conversions": [
+        {
+          "label": "Convert to JPG",
+          "targetExt": ".jpg",
+          "ffmpegArgs": "-vframes 1 -q:v 2"
+        },
+        {
+          "label": "Convert to PNG",
+          "targetExt": ".png",
+          "ffmpegArgs": "-vframes 1"
+        },
+        {
+          "label": "Convert to TIFF",
+          "targetExt": ".tiff",
+          "ffmpegArgs": "-vframes 1"
+        },
+        {
+          "label": "Convert to WebP",
+          "targetExt": ".webp",
+          "ffmpegArgs": "-vframes 1 -quality 90"
         }
       ]
     }
