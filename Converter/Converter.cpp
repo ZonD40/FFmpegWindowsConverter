@@ -31,6 +31,7 @@
 #define WM_CONVERSION_PROGRESS  (WM_USER + 1)
 #define WM_CONVERSION_DONE      (WM_USER + 2)
 #define WM_CONVERSION_ERROR     (WM_USER + 3)
+#define WM_CONVERSION_CANCELLED (WM_USER + 4)
 
 // Цвета
 static const COLORREF CLR_BG = RGB(255, 255, 255);
@@ -126,7 +127,13 @@ DWORD WINAPI conversionThread(LPVOID param) {
         }, g_cancelled);
 
     delete args;
-    if (g_hDoneEvent) SetEvent(g_hDoneEvent);
+    if (g_hDoneEvent) {
+        SetEvent(g_hDoneEvent);
+    }
+    else {
+        // Оконный режим — сообщаем UI что поток завершён (файл уже удалён)
+        PostMessage(g_hwnd, WM_CONVERSION_CANCELLED, 0, 0);
+    }
     return 0;
 }
 
@@ -340,6 +347,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         return 1;  // <-- обязательно 1, не 0, иначе DefWindowProc перерисует поверх
     }
 
+    case WM_CONVERSION_CANCELLED:
+        DestroyWindow(hwnd);
+        return 0;
+
     case WM_CONVERSION_PROGRESS: {
         ProgressMessage* pm = reinterpret_cast<ProgressMessage*>(lParam);
         updateProgress(pm->info);
@@ -380,7 +391,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (LOWORD(wParam) == IDC_BTN_CANCEL) {
             g_cancelled = true;
             FFmpegRunner::cancelCurrent();
-            DestroyWindow(hwnd);
+            // Блокируем кнопку и ждём — поток сам пошлёт WM_CONVERSION_CANCELLED
+            EnableWindow(g_btnCancel, FALSE);
+            SetWindowTextW(g_btnCancel, L"Отмена...");
+            SetWindowTextW(GetDlgItem(hwnd, 906), L"Удаление файла...");
         }
         return 0;
 

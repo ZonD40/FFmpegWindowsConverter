@@ -108,12 +108,6 @@ public:
 
             // Если отменили — удаляем недоделанный выходной файл
             if (cancelled) {
-                // К этому моменту ProcessRunner уже подождал завершения ffmpeg
-                // Пробуем удалить несколько раз на случай антивируса/индексатора
-                for (int attempt = 0; attempt < 15; attempt++) {
-                    if (DeleteFileW(task.outputFile.c_str())) break;
-                    Sleep(300);
-                }
                 break;
             }
 

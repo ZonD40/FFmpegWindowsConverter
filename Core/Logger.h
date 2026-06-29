@@ -14,7 +14,7 @@ public:
         SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, buf);
         std::wstring dir = std::wstring(buf) + L"\\FFmpegConverter";
         CreateDirectoryW(dir.c_str(), nullptr);
-        return dir + L"\\converter.log";
+        return dir + L"\\log.log";
     }
 
     static void log(const std::wstring& message) {
