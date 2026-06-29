@@ -57,6 +57,10 @@ static HWND  g_labelPctFile = nullptr;
 static HWND  g_labelPctTotal = nullptr;
 static double g_lastProgress = 0.0;
 
+static int g_pctFile = 0;
+static int g_pctTotal = 0;
+static bool g_errorState = false;
+
 HWND g_hwnd = nullptr;
 HWND g_progressTotal = nullptr;
 HWND g_progressFile = nullptr;
@@ -135,8 +139,10 @@ void updateProgress(const ProgressInfo& info) {
         std::transform(ext.begin(), ext.end(), ext.begin(), ::toupper);
         g_badgeText = std::wstring(ext.begin(), ext.end());
     }
-    SendMessage(g_progressTotal, PBM_SETPOS, static_cast<int>(info.totalProgress * 100), 0);
-    SendMessage(g_progressFile, PBM_SETPOS, static_cast<int>(info.fileProgress * 100), 0);
+    g_pctFile = (int)(info.fileProgress * 100);
+    g_pctTotal = (int)(info.totalProgress * 100);
+    // Перерисовываем только полосы
+    InvalidateRect(g_hwnd, nullptr, FALSE);
 
     std::wstring status = L"Файл " + std::to_wstring(info.currentFile)
         + L" из " + std::to_wstring(info.totalFiles);
@@ -193,6 +199,41 @@ void paintFooter(HWND hwnd) {
     DeleteObject(hPen);
 
     EndPaint(hwnd, &ps);
+}
+
+// r     — прямоугольник всей полосы
+// pct   — 0..100
+// clrFill — цвет заливки
+// clrTrack — цвет фона
+// radius — радиус скругления
+static void drawRoundBar(HDC hdc, RECT r, int pct, COLORREF clrFill, COLORREF clrTrack, int radius) {
+    // Фон (трек) — скруглённый прямоугольник
+    HBRUSH hBrTrack = CreateSolidBrush(clrTrack);
+    HPEN   hPenNull = (HPEN)GetStockObject(NULL_PEN);
+    SelectObject(hdc, hBrTrack);
+    SelectObject(hdc, hPenNull);
+    RoundRect(hdc, r.left, r.top, r.right, r.bottom, radius * 2, radius * 2);
+    DeleteObject(hBrTrack);
+
+    if (pct <= 0) return;
+
+    // Заливка — клипируем по треку, рисуем скруглённый прямоугольник нужной ширины
+    int fillW = (int)((r.right - r.left) * pct / 100.0);
+    if (fillW < radius * 2) fillW = radius * 2;  // минимум чтобы скругление не ломалось
+
+    // Создаём регион-маску по форме трека
+    HRGN hRgn = CreateRoundRectRgn(r.left, r.top, r.right + 1, r.bottom + 1, radius * 2, radius * 2);
+    SelectClipRgn(hdc, hRgn);
+
+    HBRUSH hBrFill = CreateSolidBrush(clrFill);
+    SelectObject(hdc, hBrFill);
+    RECT rcFill{ r.left, r.top, r.left + fillW, r.bottom };
+    // Правый край заливки тоже скруглённый
+    RoundRect(hdc, rcFill.left, rcFill.top, rcFill.right, rcFill.bottom, radius * 2, radius * 2);
+    DeleteObject(hBrFill);
+
+    SelectClipRgn(hdc, nullptr);
+    DeleteObject(hRgn);
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -272,6 +313,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             DeleteObject(hPenArc);
         }
 
+        // Рисуем прогресс-бары
+        auto drawBar = [&](HWND hBar, int pct, COLORREF clr) {
+            RECT rc;
+            GetWindowRect(hBar, &rc);
+            POINT pt{ rc.left, rc.top };
+            ScreenToClient(hwnd, &pt);
+            RECT r{ pt.x, pt.y, pt.x + (rc.right - rc.left), pt.y + (rc.bottom - rc.top) };
+            drawRoundBar(hdc, r, pct, clr, RGB(224, 224, 224), 4);
+            };
+        drawBar(g_progressFile, g_pctFile, g_errorState ? RGB(196, 43, 28) : CLR_ACCENT);
+        drawBar(g_progressTotal, g_pctTotal, g_errorState ? RGB(196, 43, 28) : CLR_GREEN);
+
         EndPaint(hwnd, &ps);
         return 0;
     }
@@ -305,6 +358,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         g_convDone = true;
         KillTimer(g_hwnd, 2);
         SetWindowTextW(GetDlgItem(g_hwnd, 906), L"Готово!");
+        g_pctFile = g_pctTotal = 100;
+        InvalidateRect(g_hwnd, nullptr, FALSE);
         return 0;
     }
     case WM_CONVERSION_ERROR: {
@@ -313,8 +368,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SetWindowTextW(g_labelStatus, L"Ошибка!");
         SetWindowTextW(g_labelFile, errMsg.c_str());
         SetWindowTextW(g_btnCancel, L"Закрыть");
-        SendMessage(g_progressTotal, PBM_SETSTATE, PBST_ERROR, 0);
-        SendMessage(g_progressFile, PBM_SETSTATE, PBST_ERROR, 0);
+        // Красим полосы в красный при ошибке
+        g_pctFile = g_pctTotal = (int)(/* последнее значение */ g_pctFile);
+        // Просто меняем цвет — добавь глобал g_errorState
+        g_errorState = true;
+        InvalidateRect(g_hwnd, nullptr, FALSE);
         delete pm;
         return 0;
     }
@@ -461,14 +519,14 @@ HWND createWindow(const std::wstring& targetExt, int fileCount, const std::wstri
     // ── Лейбл секции "ТЕКУЩИЙ ФАЙЛ" ───────────────────────────
     HWND hSec = CreateWindowW(L"STATIC", L"ТЕКУЩИЙ ФАЙЛ",
         WS_CHILD | WS_VISIBLE | SS_LEFT,
-        PAD, 50, 200, 14, hwnd, (HMENU)901, nullptr, nullptr);
+        PAD, 50, 200, 10, hwnd, (HMENU)901, nullptr, nullptr);
     SendMessage(hSec, WM_SETFONT, (WPARAM)fSmall, TRUE);
 
     // ── Плашка с именем файла ──────────────────────────────────
     // Фон плашки рисуем в WM_PAINT (прямоугольник с border)
     g_labelFile = CreateWindowW(L"STATIC", L"",
         WS_CHILD | WS_VISIBLE | SS_LEFT | SS_ENDELLIPSIS,
-        PAD + 42, 73, cx - 42 - 60, 18, hwnd, (HMENU)IDC_LABEL_FILE, nullptr, nullptr);
+        PAD + 45, 73, cx - 42 - 60, 18, hwnd, (HMENU)IDC_LABEL_FILE, nullptr, nullptr);
     SendMessage(g_labelFile, WM_SETFONT, (WPARAM)fNormal, TRUE);
 
     // Размер файла (справа в плашке) — обновляем при старте
@@ -489,10 +547,10 @@ HWND createWindow(const std::wstring& targetExt, int fileCount, const std::wstri
     SendMessage(g_labelPctFile, WM_SETFONT, (WPARAM)fPct, TRUE);
 
     // Прогресс файла (синий)
-    g_progressFile = CreateWindowExW(0, PROGRESS_CLASSW, nullptr,
-        WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
-        PAD, 133, cx, 8, hwnd, (HMENU)IDC_PROGRESS_FILE, nullptr, nullptr);
-    SetWindowTheme(g_progressFile, L"", L"");
+    g_progressFile = CreateWindowW(L"STATIC", nullptr,
+        WS_CHILD,  // без WS_VISIBLE — рисуем сами в WM_PAINT
+        PAD, 133, WIN_W - PAD * 2, 8, hwnd, (HMENU)IDC_PROGRESS_FILE, nullptr, nullptr);
+    //SetWindowTheme(g_progressFile, L"", L"");
     SendMessage(g_progressFile, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
     SendMessage(g_progressFile, PBM_SETBARCOLOR, 0, (LPARAM)CLR_ACCENT);
     SendMessage(g_progressFile, PBM_SETBKCOLOR, 0, (LPARAM)RGB(230, 230, 230));
@@ -509,10 +567,10 @@ HWND createWindow(const std::wstring& targetExt, int fileCount, const std::wstri
     SendMessage(g_labelPctTotal, WM_SETFONT, (WPARAM)fPct, TRUE);
 
     // Прогресс общий (зелёный)
-    g_progressTotal = CreateWindowExW(0, PROGRESS_CLASSW, nullptr,
-        WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
-        PAD, 173, cx, 8, hwnd, (HMENU)IDC_PROGRESS_TOTAL, nullptr, nullptr);
-    SetWindowTheme(g_progressTotal, L"", L"");
+    g_progressTotal = CreateWindowW(L"STATIC", nullptr,
+        WS_CHILD,
+        PAD, 173, WIN_W - PAD * 2, 8, hwnd, (HMENU)IDC_PROGRESS_TOTAL, nullptr, nullptr);
+    //SetWindowTheme(g_progressTotal, L"", L"");
     SendMessage(g_progressTotal, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
     SendMessage(g_progressTotal, PBM_SETBARCOLOR, 0, (LPARAM)CLR_GREEN);
     SendMessage(g_progressTotal, PBM_SETBKCOLOR, 0, (LPARAM)RGB(230, 230, 230));
