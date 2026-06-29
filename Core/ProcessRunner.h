@@ -11,8 +11,6 @@ public:
         bool timedOut = false;
     };
 
-    // Запускает процесс, читает stdout+stderr построчно
-    // onLine вызывается для каждой строки вывода
     static Result run(
         const std::wstring& command,
         std::function<void(const std::string&)> onLine = nullptr,
@@ -50,16 +48,15 @@ public:
             return result;
         }
 
-        CloseHandle(hWriteOut); // Закрываем write-конец у родителя
+        CloseHandle(hWriteOut); 
 
-        // Читаем вывод
         std::string buffer;
         char buf[4096];
         DWORD bytesRead;
         while (ReadFile(hReadOut, buf, sizeof(buf) - 1, &bytesRead, nullptr) && bytesRead > 0) {
             buf[bytesRead] = '\0';
             buffer += buf;
-            // Обрабатываем построчно
+
             if (onLine) {
                 size_t pos;
                 while ((pos = buffer.find('\n')) != std::string::npos) {

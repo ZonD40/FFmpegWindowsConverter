@@ -199,25 +199,7 @@ DWORD WINAPI installThread(LPVOID param) {
         return 1;
     }
 
-    // Перезапускаем проводник
-    PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 96,
-        reinterpret_cast<LPARAM>(L"Перезапуск проводника..."));
-
-    // Мягкий способ — через Shell API
-    HWND hShell = FindWindowW(L"Shell_TrayWnd", nullptr);
-    if (hShell) {
-        // Graceful exit проводника
-        PostMessage(hShell, WM_USER + 436, 0, 0);
-        Sleep(1500);
-    }
-    else {
-        // Жёсткий если не нашли
-        runAndWait(L"taskkill /f /im explorer.exe");
-        Sleep(1000);
-    }
-    // Запускаем заново
-    ShellExecuteW(nullptr, nullptr, L"explorer.exe",
-        nullptr, nullptr, SW_SHOW);
+    
 
     // 7. Добавляем в реестр для удаления (Add/Remove Programs)
     PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 92,
@@ -270,7 +252,6 @@ DWORD WINAPI uninstallThread(LPVOID) {
             reinterpret_cast<LPARAM>(_wcsdup(msg)));
         };
 
-    // Читаем путь установки из реестра
     wchar_t installDir[MAX_PATH] = {};
     DWORD sz = sizeof(installDir);
     HKEY hk;
@@ -284,22 +265,53 @@ DWORD WINAPI uninstallThread(LPVOID) {
         reinterpret_cast<BYTE*>(installDir), &sz);
     RegCloseKey(hk);
 
+    std::wstring dir = installDir;
+
     PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 20,
         reinterpret_cast<LPARAM>(L"Отмена регистрации DLL..."));
-    std::wstring dllPath = std::wstring(installDir) + L"\\ShellExtension.dll";
+    std::wstring dllPath = dir + L"\\ShellExtension.dll";
     runAndWait(L"regsvr32 /s /u \"" + dllPath + L"\"");
 
-    PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 50,
-        reinterpret_cast<LPARAM>(L"Удаление файлов..."));
-    try { fs::remove_all(installDir); }
-    catch (...) {}
+    // Убиваем Explorer чтобы DLL выгрузилась из памяти
+    PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 40,
+        reinterpret_cast<LPARAM>(L"Перезапуск проводника..."));
+    runAndWait(L"taskkill /f /im explorer.exe");
+    Sleep(2000);
+    ShellExecuteW(nullptr, nullptr, L"explorer.exe", nullptr, nullptr, SW_SHOW);
+    Sleep(1500);
 
-    PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 80,
+    // Очистка реестра
+    PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 70,
         reinterpret_cast<LPARAM>(L"Очистка реестра..."));
     RegDeleteTreeW(HKEY_LOCAL_MACHINE,
         L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\FFmpegConverter");
 
-    PostMessage(g_hwnd, WM_INSTALL_DONE, 1, 0); // wParam=1 → удаление
+    // Удаляем папку через cmd отложенно (сам installer.exe там не живёт,
+    // но uninst.exe и DLL уже свободны после перезапуска Explorer)
+    PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 85,
+        reinterpret_cast<LPARAM>(L"Удаление файлов..."));
+
+    wchar_t tempPath[MAX_PATH] = {};
+    GetTempPathW(MAX_PATH, tempPath);
+    std::wstring emptyDir = std::wstring(tempPath) + L"empty_ffmpeg_tmp";
+    CreateDirectoryW(emptyDir.c_str(), nullptr);
+
+    std::wstring delCmd =
+        L"cmd /c timeout /t 2 /nobreak >nul"
+        L" & robocopy \"" + emptyDir + L"\" \"" + dir + L"\" /MIR /NFL /NDL /NJH /NJS >nul"
+        L" & rd /s /q \"" + dir + L"\""
+        L" & rd /s /q \"" + emptyDir + L"\"";
+
+    STARTUPINFOW si{}; si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION pi{};
+    CreateProcessW(nullptr, delCmd.data(), nullptr, nullptr,
+        FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    if (pi.hProcess) CloseHandle(pi.hProcess);
+    if (pi.hThread)  CloseHandle(pi.hThread);
+
+    PostMessage(g_hwnd, WM_INSTALL_DONE, 1, 0);
     return 0;
 }
 

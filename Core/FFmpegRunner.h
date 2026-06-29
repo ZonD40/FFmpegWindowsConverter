@@ -11,7 +11,7 @@
 struct ConversionTask {
     std::wstring inputFile;
     std::wstring outputFile;
-    std::string ffmpegArgs;   // например "-c:v libx264 -c:a aac"
+    std::string ffmpegArgs;   
 };
 
 struct ProgressInfo {
@@ -29,10 +29,8 @@ class FFmpegRunner {
 public:
     static std::wstring ffmpegPath;
 
-    // Получить длительность файла в секундах
     static double getDuration(const std::wstring& file) {
         std::wstring cmd = L"\"" + ffmpegPath + L"\" -i \"" + file + L"\" 2>&1";
-        // ffprobe точнее, но используем ffmpeg -i
         double duration = 0.0;
         auto result = ProcessRunner::run(
             L"\"" + ffmpegPath + L"\" -i \"" + file + L"\"",
@@ -51,7 +49,7 @@ public:
         return duration;
     }
 
-    // Конвертирует список файлов, вызывает onProgress при каждом обновлении
+
     static bool convertAll(
         const std::vector<ConversionTask>& tasks,
         std::function<void(const ProgressInfo&)> onProgress
@@ -69,7 +67,7 @@ public:
 
             double duration = getDuration(task.inputFile);
 
-            // Строим команду
+
             // ffmpeg -y -i "input" [args] "output"
             std::wstring cmd = L"\"" + ffmpegPath + L"\" -y -progress pipe:1 -i \""
                 + task.inputFile + L"\" "
@@ -79,7 +77,7 @@ public:
             double outTimeSeconds = 0.0;
 
             auto result = ProcessRunner::run(cmd, [&](const std::string& line) {
-                // ffmpeg -progress выдаёт "out_time_ms=XXXXX"
+
                 if (line.rfind("out_time_ms=", 0) == 0) {
                     long long ms = 0;
                     try { ms = std::stoll(line.substr(12)); }

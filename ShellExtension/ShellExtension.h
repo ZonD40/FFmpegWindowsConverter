@@ -12,7 +12,6 @@
 
 #pragma comment(lib, "shlwapi.lib")
 
-// Максимум пунктов меню
 #define MAX_MENU_ITEMS 20
 
 struct MenuItem {
@@ -47,8 +46,8 @@ public:
 
 private:
     LONG              m_refCount;
-    std::vector<std::wstring> m_files;       // выбранные файлы
-    std::vector<MenuItem>     m_menuItems;   // пункты меню
+    std::vector<std::wstring> m_files;       
+    std::vector<MenuItem>     m_menuItems;  
     PresetManager             m_presetManager;
     UINT                      m_idCmdFirst;
 
@@ -57,7 +56,6 @@ private:
     void launchConverter(const MenuItem& item);
 };
 
-// Фабрика классов
 class FFmpegShellExtFactory : public IClassFactory {
 public:
     FFmpegShellExtFactory() : m_ref(1) {}
@@ -90,6 +88,5 @@ private:
     LONG m_ref;
 };
 
-// Глобальный счётчик объектов (для DllCanUnloadNow)
 extern LONG g_objectCount;
 extern HMODULE g_hModule;

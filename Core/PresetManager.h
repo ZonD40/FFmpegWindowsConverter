@@ -18,7 +18,6 @@ struct Preset {
     std::vector<Conversion> conversions;
 };
 
-// Минимальный JSON-парсер для наших нужд
 class PresetManager {
 public:
     static std::wstring getPresetsPath() {
@@ -54,7 +53,6 @@ public:
 private:
     std::vector<Preset> presets_;
 
-    // Простой парсер — ищет нужные строки
     bool parse(const std::string& json) {
         presets_.clear();
         size_t pos = 0;
@@ -68,7 +66,6 @@ private:
             size_t convStart = json.find("\"conversions\"", pos);
             if (extStart == std::string::npos || convStart == std::string::npos) break;
 
-            // Парсим extensions
             size_t arrStart = json.find('[', extStart);
             size_t arrEnd = json.find(']', arrStart);
             if (arrStart == std::string::npos || arrEnd == std::string::npos) break;
@@ -82,7 +79,6 @@ private:
                 p2 = qe + 1;
             }
 
-            // Парсим conversions
             size_t cArrStart = json.find('[', convStart);
             size_t cArrEnd = findMatchingBracket(json, cArrStart);
             size_t p3 = cArrStart;

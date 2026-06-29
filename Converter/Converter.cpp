@@ -1,5 +1,4 @@
-﻿
-#include <windows.h>
+﻿#include <windows.h>
 
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
@@ -12,7 +11,6 @@
 #include <sstream>
 #include <filesystem>
 
-// Подключаем Core
 #include "../Core/FFmpegRunner.h"
 #include "../Core/PresetManager.h"
 #include "../Core/FileClassifier.h"
@@ -20,7 +18,6 @@
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(linker, "/subsystem:windows")
 
-// ID контролов
 #define IDC_PROGRESS_TOTAL   101
 #define IDC_PROGRESS_FILE    102
 #define IDC_LABEL_STATUS     103
@@ -28,12 +25,22 @@
 #define IDC_BTN_CANCEL       105
 #define IDC_LABEL_TOTAL_TXT  106
 
-// Кастомные сообщения
 #define WM_CONVERSION_PROGRESS  (WM_USER + 1)
 #define WM_CONVERSION_DONE      (WM_USER + 2)
 #define WM_CONVERSION_ERROR     (WM_USER + 3)
 
-// Глобальные переменные
+// Цвета
+static const COLORREF CLR_BG = RGB(250, 250, 250);
+static const COLORREF CLR_FOOTER = RGB(240, 240, 240);
+static const COLORREF CLR_TEXT = RGB(30, 30, 30);
+static const COLORREF CLR_MUTED = RGB(100, 100, 100);
+
+// Геометрия окна
+static const int WIN_W = 500;
+static const int WIN_H = 270;   // высота с запасом
+static const int FOOTER_Y = 220;   // y начала footer-зоны (рисуется вручную)
+static const int PAD = 20;
+
 HWND g_hwnd = nullptr;
 HWND g_progressTotal = nullptr;
 HWND g_progressFile = nullptr;
@@ -42,6 +49,9 @@ HWND g_labelFile = nullptr;
 HWND g_btnCancel = nullptr;
 bool g_cancelled = false;
 HANDLE g_hDoneEvent = nullptr;
+
+static HBRUSH g_hBrushBg = nullptr;
+static HBRUSH g_hBrushFooter = nullptr;
 
 struct ConversionArgs {
     std::vector<std::wstring> inputFiles;
@@ -54,13 +64,10 @@ struct ProgressMessage {
     ProgressInfo info;
 };
 
-// Поток конвертации
 DWORD WINAPI conversionThread(LPVOID param) {
     ConversionArgs* args = reinterpret_cast<ConversionArgs*>(param);
-
     FFmpegRunner::ffmpegPath = args->ffmpegPath;
 
-    // Строим задачи
     PresetManager pm;
     pm.load(args->presetsPath);
 
@@ -69,7 +76,6 @@ DWORD WINAPI conversionThread(LPVOID param) {
         namespace fs = std::filesystem;
         fs::path p(file);
         std::string ext = p.extension().string();
-
         const Preset* preset = pm.findPresetForExtension(ext);
         std::string ffmpegArgs = "";
         if (preset) {
@@ -80,7 +86,6 @@ DWORD WINAPI conversionThread(LPVOID param) {
                 }
             }
         }
-
         ConversionTask task;
         task.inputFile = file;
         std::wstring basePath = (p.parent_path() / p.stem()).wstring();
@@ -89,21 +94,12 @@ DWORD WINAPI conversionThread(LPVOID param) {
         tasks.push_back(task);
     }
 
-    bool success = FFmpegRunner::convertAll(tasks, [&](const ProgressInfo& info) {
+    FFmpegRunner::convertAll(tasks, [&](const ProgressInfo& info) {
         if (g_cancelled) return;
-
-        // Отправляем в UI поток через PostMessage
         ProgressMessage* msg = new ProgressMessage{ info };
-
-        if (info.done) {
-            PostMessage(g_hwnd, WM_CONVERSION_DONE, 0, reinterpret_cast<LPARAM>(msg));
-        }
-        else if (info.error) {
-            PostMessage(g_hwnd, WM_CONVERSION_ERROR, 0, reinterpret_cast<LPARAM>(msg));
-        }
-        else {
-            PostMessage(g_hwnd, WM_CONVERSION_PROGRESS, 0, reinterpret_cast<LPARAM>(msg));
-        }
+        if (info.done)       PostMessage(g_hwnd, WM_CONVERSION_DONE, 0, reinterpret_cast<LPARAM>(msg));
+        else if (info.error) PostMessage(g_hwnd, WM_CONVERSION_ERROR, 0, reinterpret_cast<LPARAM>(msg));
+        else                 PostMessage(g_hwnd, WM_CONVERSION_PROGRESS, 0, reinterpret_cast<LPARAM>(msg));
         });
 
     delete args;
@@ -111,34 +107,60 @@ DWORD WINAPI conversionThread(LPVOID param) {
     return 0;
 }
 
-// Обновляем UI по прогрессу
 void updateProgress(const ProgressInfo& info) {
-    // Общий прогресс
-    int totalPct = static_cast<int>(info.totalProgress * 100);
-    SendMessage(g_progressTotal, PBM_SETPOS, totalPct, 0);
+    SendMessage(g_progressTotal, PBM_SETPOS, static_cast<int>(info.totalProgress * 100), 0);
+    SendMessage(g_progressFile, PBM_SETPOS, static_cast<int>(info.fileProgress * 100), 0);
 
-    // Прогресс текущего файла
-    int filePct = static_cast<int>(info.fileProgress * 100);
-    SendMessage(g_progressFile, PBM_SETPOS, filePct, 0);
-
-    // Статус
     std::wstring status = L"Файл " + std::to_wstring(info.currentFile)
         + L" из " + std::to_wstring(info.totalFiles);
     SetWindowTextW(g_labelStatus, status.c_str());
 
-    // Имя файла (только само имя, без пути)
     std::wstring fileName(info.currentFileName.begin(), info.currentFileName.end());
     namespace fs = std::filesystem;
-    try {
-        fileName = fs::path(fileName).filename().wstring();
-    }
+    try { fileName = fs::path(fileName).filename().wstring(); }
     catch (...) {}
     SetWindowTextW(g_labelFile, fileName.c_str());
 }
 
-// Window procedure
+// Рисуем разделитель и footer вручную в WM_PAINT
+void paintFooter(HWND hwnd) {
+    PAINTSTRUCT ps;
+    HDC hdc = BeginPaint(hwnd, &ps);
+
+    RECT rcFooter{ 0, FOOTER_Y, WIN_W, WIN_H };
+    FillRect(hdc, &rcFooter, g_hBrushFooter);
+
+    // Тонкая линия-разделитель
+    HPEN hPen = CreatePen(PS_SOLID, 1, RGB(210, 210, 210));
+    HPEN hOld = (HPEN)SelectObject(hdc, hPen);
+    MoveToEx(hdc, 0, FOOTER_Y, nullptr);
+    LineTo(hdc, WIN_W, FOOTER_Y);
+    SelectObject(hdc, hOld);
+    DeleteObject(hPen);
+
+    EndPaint(hwnd, &ps);
+}
+
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+
+    case WM_PAINT:
+        paintFooter(hwnd);
+        return 0;
+
+    case WM_ERASEBKGND: {
+        HDC hdc = reinterpret_cast<HDC>(wParam);
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        // Верхняя зона — основной фон
+        RECT rcTop{ 0, 0, rc.right, FOOTER_Y };
+        FillRect(hdc, &rcTop, g_hBrushBg);
+        // Нижняя — footer
+        RECT rcFoot{ 0, FOOTER_Y, rc.right, rc.bottom };
+        FillRect(hdc, &rcFoot, g_hBrushFooter);
+        return 1;
+    }
+
     case WM_CONVERSION_PROGRESS: {
         ProgressMessage* pm = reinterpret_cast<ProgressMessage*>(lParam);
         updateProgress(pm->info);
@@ -147,31 +169,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     }
     case WM_CONVERSION_DONE: {
         ProgressMessage* pm = reinterpret_cast<ProgressMessage*>(lParam);
-
         SendMessage(g_progressTotal, PBM_SETPOS, 100, 0);
         SendMessage(g_progressFile, PBM_SETPOS, 100, 0);
         SetWindowTextW(g_labelStatus, L"Готово!");
         SetWindowTextW(g_labelFile, L"Конвертация завершена успешно.");
         SetWindowTextW(g_btnCancel, L"Закрыть");
-
         delete pm;
-
-        // Закрываем окно через 100 милисекунд
         SetTimer(g_hwnd, 1, 100, nullptr);
         return 0;
     }
     case WM_CONVERSION_ERROR: {
         ProgressMessage* pm = reinterpret_cast<ProgressMessage*>(lParam);
-
         std::wstring errMsg(pm->info.errorMessage.begin(), pm->info.errorMessage.end());
         SetWindowTextW(g_labelStatus, L"Ошибка!");
         SetWindowTextW(g_labelFile, errMsg.c_str());
         SetWindowTextW(g_btnCancel, L"Закрыть");
-
-        // Красим прогресс в красный
         SendMessage(g_progressTotal, PBM_SETSTATE, PBST_ERROR, 0);
         SendMessage(g_progressFile, PBM_SETSTATE, PBST_ERROR, 0);
-
         delete pm;
         return 0;
     }
@@ -187,14 +201,25 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
 
     case WM_CTLCOLORSTATIC: {
-        // Белый фон для статик-лейблов
-        HDC hdc = reinterpret_cast<HDC>(wParam);
-        SetBkColor(hdc, RGB(245, 245, 245));
-        SetTextColor(hdc, RGB(30, 30, 30));
-        // Возвращаем кисть точно того же цвета что фон окна
-        static HBRUSH hBrush = CreateSolidBrush(RGB(245, 245, 245));
-        return reinterpret_cast<LRESULT>(hBrush);
+        HDC  hdc = reinterpret_cast<HDC>(wParam);
+        HWND hCtrl = reinterpret_cast<HWND>(lParam);
+
+        // Определяем, в какой зоне находится контрол
+        RECT rc;
+        GetWindowRect(hCtrl, &rc);
+        POINT pt{ rc.left, rc.top };
+        ScreenToClient(hwnd, &pt);
+
+        if (pt.y >= FOOTER_Y) {
+            SetBkColor(hdc, CLR_FOOTER);
+            SetTextColor(hdc, CLR_MUTED);
+            return reinterpret_cast<LRESULT>(g_hBrushFooter);
+        }
+        SetBkColor(hdc, CLR_BG);
+        SetTextColor(hdc, CLR_TEXT);
+        return reinterpret_cast<LRESULT>(g_hBrushBg);
     }
+
     case WM_TIMER:
         if (wParam == 1) {
             KillTimer(hwnd, 1);
@@ -205,101 +230,111 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
-// Создаём окно
 HWND createWindow(const std::wstring& targetExt, int fileCount) {
     INITCOMMONCONTROLSEX icc{};
     icc.dwSize = sizeof(icc);
     icc.dwICC = ICC_PROGRESS_CLASS;
     InitCommonControlsEx(&icc);
 
+    g_hBrushBg = CreateSolidBrush(CLR_BG);
+    g_hBrushFooter = CreateSolidBrush(CLR_FOOTER);
+
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = WndProc;
     wc.hInstance = GetModuleHandleW(nullptr);
-    wc.hbrBackground = CreateSolidBrush(RGB(245, 245, 245));
+    wc.hbrBackground = g_hBrushBg;   // базовый фон; footer рисуем сами
     wc.lpszClassName = L"FFmpegConverterWindow";
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
     RegisterClassExW(&wc);
 
-    int W = 480, H = 240;
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
+
+    // Считаем реальный размер окна с учётом рамки/заголовка
+    RECT rc{ 0, 0, WIN_W, WIN_H };
+    AdjustWindowRectEx(&rc, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+        FALSE, WS_EX_DLGMODALFRAME);
+    int winW = rc.right - rc.left;
+    int winH = rc.bottom - rc.top;
 
     HWND hwnd = CreateWindowExW(
         WS_EX_DLGMODALFRAME,
         L"FFmpegConverterWindow",
         L"FFmpeg Converter",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        (screenW - W) / 2, (screenH - H) / 2,
-        W, H,
+        (screenW - winW) / 2, (screenH - winH) / 2,
+        winW, winH,
         nullptr, nullptr, GetModuleHandleW(nullptr), nullptr
     );
 
-    HFONT hFontNormal = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    // Шрифты
+    HFONT hFontNormal = CreateFontW(15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
-    HFONT hFontBold = CreateFontW(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+    HFONT hFontBold = CreateFontW(15, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
-    HFONT hFontSmall = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+    HFONT hFontSmall = CreateFontW(12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
 
-    // Заголовок
+    int cx = WIN_W - PAD * 2;   // ширина контента
+
+    // ── Заголовок ──────────────────────────────────────────────
     std::wstring title = L"Конвертация " + std::to_wstring(fileCount)
-        + L" файл(ов) → " + targetExt;
+        + L" файл(ов)  \u2192  " + targetExt;
     HWND hTitle = CreateWindowW(L"STATIC", title.c_str(),
         WS_CHILD | WS_VISIBLE | SS_LEFT,
-        20, 15, 440, 22, hwnd, nullptr, nullptr, nullptr);
+        PAD, 16, cx, 20, hwnd, nullptr, nullptr, nullptr);
     SendMessage(hTitle, WM_SETFONT, (WPARAM)hFontBold, TRUE);
 
-    // Лейбл статуса (Файл X из Y)
+    // ── "Файл X из Y" ──────────────────────────────────────────
     g_labelStatus = CreateWindowW(L"STATIC", L"Подготовка...",
         WS_CHILD | WS_VISIBLE | SS_LEFT,
-        20, 45, 440, 18, hwnd, (HMENU)IDC_LABEL_STATUS, nullptr, nullptr);
+        PAD, 48, cx, 18, hwnd, (HMENU)IDC_LABEL_STATUS, nullptr, nullptr);
     SendMessage(g_labelStatus, WM_SETFONT, (WPARAM)hFontNormal, TRUE);
 
-    // Прогресс текущего файла
+    // ── Прогресс файла ─────────────────────────────────────────
     g_progressFile = CreateWindowExW(0, PROGRESS_CLASSW, nullptr,
         WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
-        20, 68, 440, 20, hwnd, (HMENU)IDC_PROGRESS_FILE, nullptr, nullptr);
+        PAD, 70, cx, 16, hwnd, (HMENU)IDC_PROGRESS_FILE, nullptr, nullptr);
     SendMessage(g_progressFile, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
     SendMessage(g_progressFile, PBM_SETPOS, 0, 0);
 
-    // Имя текущего файла
+    // ── Имя файла (мелкий серый) ────────────────────────────────
     g_labelFile = CreateWindowW(L"STATIC", L"",
         WS_CHILD | WS_VISIBLE | SS_LEFT | SS_ENDELLIPSIS,
-        20, 93, 440, 16, hwnd, (HMENU)IDC_LABEL_FILE, nullptr, nullptr);
+        PAD, 91, cx, 15, hwnd, (HMENU)IDC_LABEL_FILE, nullptr, nullptr);
     SendMessage(g_labelFile, WM_SETFONT, (WPARAM)hFontSmall, TRUE);
 
-    // Лейбл общего прогресса
+    // ── "Общий прогресс:" ───────────────────────────────────────
     HWND hTotalTxt = CreateWindowW(L"STATIC", L"Общий прогресс:",
         WS_CHILD | WS_VISIBLE | SS_LEFT,
-        20, 116, 200, 18, hwnd, (HMENU)IDC_LABEL_TOTAL_TXT, nullptr, nullptr);
+        PAD, 118, 200, 18, hwnd, (HMENU)IDC_LABEL_TOTAL_TXT, nullptr, nullptr);
     SendMessage(hTotalTxt, WM_SETFONT, (WPARAM)hFontNormal, TRUE);
 
-    // Общий прогресс-бар
+    // ── Общий прогресс-бар ─────────────────────────────────────
     g_progressTotal = CreateWindowExW(0, PROGRESS_CLASSW, nullptr,
         WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
-        20, 138, 440, 20, hwnd, (HMENU)IDC_PROGRESS_TOTAL, nullptr, nullptr);
+        PAD, 140, cx, 16, hwnd, (HMENU)IDC_PROGRESS_TOTAL, nullptr, nullptr);
     SendMessage(g_progressTotal, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
     SendMessage(g_progressTotal, PBM_SETPOS, 0, 0);
 
-    // Кнопка Отмена
+    // ── Кнопка «Отмена» в footer ───────────────────────────────
+    // y = FOOTER_Y + (footer_height - btn_height) / 2 = 220 + (50-28)/2 = 231
     g_btnCancel = CreateWindowW(L"BUTTON", L"Отмена",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        350, 190, 110, 32, hwnd, (HMENU)IDC_BTN_CANCEL, nullptr, nullptr);
+        WIN_W - PAD - 110, FOOTER_Y + 11, 110, 28,
+        hwnd, (HMENU)IDC_BTN_CANCEL, nullptr, nullptr);
     SendMessage(g_btnCancel, WM_SETFONT, (WPARAM)hFontNormal, TRUE);
 
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
-
     return hwnd;
 }
 
-// Парсим аргументы командной строки
-// Формат: Converter.exe --target .mp4 --ffmpeg "C:\path\ffmpeg.exe" --presets "C:\path\presets.json" "file1.mov" "file2.mov"
 struct ParsedArgs {
     std::wstring targetExt;
     std::wstring ffmpegPath;
@@ -312,18 +347,10 @@ ParsedArgs parseArgs(int argc, wchar_t* argv[]) {
     ParsedArgs result;
     for (int i = 1; i < argc; i++) {
         std::wstring arg = argv[i];
-        if (arg == L"--target" && i + 1 < argc) {
-            result.targetExt = argv[++i];
-        }
-        else if (arg == L"--ffmpeg" && i + 1 < argc) {
-            result.ffmpegPath = argv[++i];
-        }
-        else if (arg == L"--presets" && i + 1 < argc) {
-            result.presetsPath = argv[++i];
-        }
-        else if (arg[0] != L'-') {
-            result.files.push_back(arg);
-        }
+        if (arg == L"--target" && i + 1 < argc) result.targetExt = argv[++i];
+        else if (arg == L"--ffmpeg" && i + 1 < argc) result.ffmpegPath = argv[++i];
+        else if (arg == L"--presets" && i + 1 < argc) result.presetsPath = argv[++i];
+        else if (arg[0] != L'-')                       result.files.push_back(arg);
     }
     result.valid = !result.targetExt.empty() && !result.files.empty() && !result.ffmpegPath.empty();
     return result;
@@ -337,7 +364,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
 
     if (!args.valid) {
         MessageBoxW(nullptr,
-            L"Использование:\nConverter.exe --target .mp4 --ffmpeg \"путь\\ffmpeg.exe\" --presets \"путь\\presets.json\" \"file1\" \"file2\"",
+            L"Использование:\nConverter.exe --target .mp4 --ffmpeg \"путь\\ffmpeg.exe\""
+            L" --presets \"путь\\presets.json\" \"file1\" \"file2\"",
             L"FFmpeg Converter", MB_OK | MB_ICONERROR);
         return 1;
     }
