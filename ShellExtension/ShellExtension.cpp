@@ -1,4 +1,3 @@
-
 #include "ShellExtension.h"
 #include <shellapi.h>
 #include <filesystem>
@@ -37,10 +36,18 @@ static void regWrite(HKEY root, const wchar_t* path,
     RegCloseKey(hk);
 }
 
+static void regWriteDword(HKEY root, const wchar_t* path,
+    const wchar_t* name, DWORD value) {
+    HKEY hk;
+    RegCreateKeyExW(root, path, 0, nullptr, 0, KEY_WRITE, nullptr, &hk, nullptr);
+    RegSetValueExW(hk, name, 0, REG_DWORD,
+        reinterpret_cast<const BYTE*>(&value), sizeof(DWORD));
+    RegCloseKey(hk);
+}
+
 STDAPI DllRegisterServer() {
     wchar_t dllPath[MAX_PATH];
     GetModuleFileNameW(g_hModule, dllPath, MAX_PATH);
-
 
     wchar_t clsidStr[64];
     StringFromGUID2(CLSID_FFmpegShellExt, clsidStr, 64);
@@ -54,8 +61,23 @@ STDAPI DllRegisterServer() {
     regWrite(HKEY_LOCAL_MACHINE, inprocKey.c_str(),
         L"ThreadingModel", L"Apartment");
 
+    // Регистрируем для IContextMenu (старое меню + Win10)
     std::wstring extKey = L"Software\\Classes\\*\\shellex\\ContextMenuHandlers\\FFmpegConverter";
     regWrite(HKEY_LOCAL_MACHINE, extKey.c_str(), nullptr, clsidStr);
+    regWriteDword(HKEY_LOCAL_MACHINE, extKey.c_str(), L"ShowInNewUI", 1);
+
+    // ═══ Новое: Регистрируем для каждого типа файла в новом меню Win11 ═══
+    const wchar_t* fileTypes[] = {
+        L".mp4", L".mkv", L".avi", L".mov", L".flv", L".wmv", L".webm",
+        L".mp3", L".wav", L".aac", L".flac", L".m4a", L".wma",
+        L".jpg", L".jpeg", L".png", L".bmp", L".gif", L".tiff"
+    };
+
+    for (const auto& ext : fileTypes) {
+        std::wstring newMenuKey = std::wstring(L"Software\\Classes\\") + ext +
+            L"\\shellex\\ContextMenu\\" + clsidStr;
+        regWrite(HKEY_LOCAL_MACHINE, newMenuKey.c_str(), nullptr, L"");
+    }
 
     regWrite(HKEY_LOCAL_MACHINE,
         L"Software\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Approved",
@@ -75,6 +97,19 @@ STDAPI DllUnregisterServer() {
     std::wstring extKey = L"Software\\Classes\\*\\shellex\\ContextMenuHandlers\\FFmpegConverter";
     RegDeleteTreeW(HKEY_LOCAL_MACHINE, extKey.c_str());
 
+    // Удаляем из новых типов файлов
+    const wchar_t* fileTypes[] = {
+        L".mp4", L".mkv", L".avi", L".mov", L".flv", L".wmv", L".webm",
+        L".mp3", L".wav", L".aac", L".flac", L".m4a", L".wma",
+        L".jpg", L".jpeg", L".png", L".bmp", L".gif", L".tiff"
+    };
+
+    for (const auto& ext : fileTypes) {
+        std::wstring newMenuKey = std::wstring(L"Software\\Classes\\") + ext +
+            L"\\shellex\\ContextMenu\\" + clsidStr;
+        RegDeleteTreeW(HKEY_LOCAL_MACHINE, newMenuKey.c_str());
+    }
+
     HKEY hk;
     RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"Software\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Approved",
@@ -86,6 +121,7 @@ STDAPI DllUnregisterServer() {
     return S_OK;
 }
 
+// ========== FFmpegShellExt ==========
 
 FFmpegShellExt::FFmpegShellExt() : m_refCount(1), m_idCmdFirst(0) {
     InterlockedIncrement(&g_objectCount);
@@ -111,6 +147,9 @@ STDMETHODIMP FFmpegShellExt::QueryInterface(REFIID riid, void** ppv) {
     else if (riid == IID_IContextMenu) {
         *ppv = static_cast<IContextMenu*>(this);
     }
+    else if (riid == IID_IExplorerCommand) {
+        *ppv = static_cast<IExplorerCommand*>(this);
+    }
     else {
         *ppv = nullptr;
         return E_NOINTERFACE;
@@ -118,7 +157,11 @@ STDMETHODIMP FFmpegShellExt::QueryInterface(REFIID riid, void** ppv) {
     AddRef();
     return S_OK;
 }
-STDMETHODIMP_(ULONG) FFmpegShellExt::AddRef() { return InterlockedIncrement(&m_refCount); }
+
+STDMETHODIMP_(ULONG) FFmpegShellExt::AddRef() {
+    return InterlockedIncrement(&m_refCount);
+}
+
 STDMETHODIMP_(ULONG) FFmpegShellExt::Release() {
     LONG r = InterlockedDecrement(&m_refCount);
     if (r == 0) delete this;
@@ -166,14 +209,13 @@ void FFmpegShellExt::buildMenuItems() {
     for (size_t i = 1; i < m_files.size(); i++) {
         std::string e = fs::path(m_files[i]).extension().string();
         if (FileClassifier::classify(std::wstring(e.begin(), e.end())) != type)
-            return; 
+            return;
     }
 
     const Preset* preset = m_presetManager.findPresetForExtension(ext);
     if (!preset) return;
 
     for (const auto& conv : preset->conversions) {
-
         if (conv.targetExt == ext) continue;
 
         MenuItem item;
@@ -184,7 +226,6 @@ void FFmpegShellExt::buildMenuItems() {
     }
 }
 
-
 STDMETHODIMP FFmpegShellExt::QueryContextMenu(
     HMENU hmenu, UINT indexMenu,
     UINT idCmdFirst, UINT idCmdLast, UINT uFlags)
@@ -194,7 +235,6 @@ STDMETHODIMP FFmpegShellExt::QueryContextMenu(
 
     m_idCmdFirst = idCmdFirst;
 
-
     HMENU hSub = CreatePopupMenu();
     for (UINT i = 0; i < m_menuItems.size() && i < MAX_MENU_ITEMS; i++) {
         InsertMenuW(hSub, i, MF_BYPOSITION | MF_STRING,
@@ -202,14 +242,12 @@ STDMETHODIMP FFmpegShellExt::QueryContextMenu(
             m_menuItems[i].label.c_str());
     }
 
-
     std::wstring iconPath = getInstallDir() + L"\\icon.ico";
     HICON hIcon = (HICON)LoadImageW(nullptr, iconPath.c_str(),
         IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
 
     HBITMAP hBitmap = nullptr;
     if (hIcon) {
-
         HDC hdcScreen = GetDC(nullptr);
         HDC hdcMem = CreateCompatibleDC(hdcScreen);
         BITMAPINFO bmi{};
@@ -265,13 +303,11 @@ STDMETHODIMP FFmpegShellExt::GetCommandString(
     return E_NOTIMPL;
 }
 
-
 void FFmpegShellExt::launchConverter(const MenuItem& item) {
     std::wstring dir = getInstallDir();
     std::wstring converterPath = dir + L"\\Converter.exe";
     std::wstring ffmpegPath = dir + L"\\ffmpeg.exe";
     std::wstring presetsPath = dir + L"\\presets.json";
-
 
     std::wstring cmd = L"\"" + converterPath + L"\""
         + L" --target \"" + item.targetExt + L"\""
@@ -286,10 +322,139 @@ void FFmpegShellExt::launchConverter(const MenuItem& item) {
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
 
-    CreateProcessW(nullptr, cmd.data(),
+    std::wstring cmdCopy = cmd;
+    CreateProcessW(nullptr, cmdCopy.data(),
         nullptr, nullptr, FALSE,
         0, nullptr, nullptr, &si, &pi);
 
     if (pi.hProcess) CloseHandle(pi.hProcess);
     if (pi.hThread)  CloseHandle(pi.hThread);
+}
+
+// ========== IExplorerCommand (для Win11 новое меню) ==========
+
+STDMETHODIMP FFmpegShellExt::GetTitle(IShellItemArray* psia, LPWSTR* ppszTitle) {
+    *ppszTitle = (LPWSTR)CoTaskMemAlloc(sizeof(L"Convert with FFmpeg"));
+    wcscpy_s(*ppszTitle, 64, L"Convert with FFmpeg");
+    return S_OK;
+}
+
+STDMETHODIMP FFmpegShellExt::GetToolTip(IShellItemArray* psia, LPWSTR* ppszInfotip) {
+    *ppszInfotip = (LPWSTR)CoTaskMemAlloc(sizeof(L"Convert files with FFmpeg"));
+    wcscpy_s(*ppszInfotip, 64, L"Convert files with FFmpeg");
+    return S_OK;
+}
+
+STDMETHODIMP FFmpegShellExt::GetCanonicalName(GUID* pguidCommandName) {
+    *pguidCommandName = CLSID_FFmpegShellExt;
+    return S_OK;
+}
+
+STDMETHODIMP FFmpegShellExt::GetState(IShellItemArray* psia, BOOL fOkToBeSlow, EXPCMDSTATE* pCmdState) {
+    if (!psia) {
+        *pCmdState = ECS_DISABLED;
+        return S_OK;
+    }
+
+    DWORD count;
+    psia->GetCount(&count);
+    if (count == 0) {
+        *pCmdState = ECS_DISABLED;
+        return S_OK;
+    }
+
+    m_files.clear();
+    for (DWORD i = 0; i < count; i++) {
+        IShellItem* pItem = nullptr;
+        if (SUCCEEDED(psia->GetItemAt(i, &pItem))) {
+            LPWSTR pszPath = nullptr;
+            if (SUCCEEDED(pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszPath))) {
+                m_files.push_back(pszPath);
+                CoTaskMemFree(pszPath);
+            }
+            pItem->Release();
+        }
+    }
+
+    buildMenuItems();
+    *pCmdState = m_menuItems.empty() ? ECS_DISABLED : ECS_ENABLED;
+    return S_OK;
+}
+
+STDMETHODIMP FFmpegShellExt::Invoke(IShellItemArray* psia, IBindCtx* pbc) {
+    if (m_menuItems.empty() || psia == nullptr) return E_FAIL;
+
+    DWORD count;
+    psia->GetCount(&count);
+    m_files.clear();
+
+    for (DWORD i = 0; i < count; i++) {
+        IShellItem* pItem = nullptr;
+        if (SUCCEEDED(psia->GetItemAt(i, &pItem))) {
+            LPWSTR pszPath = nullptr;
+            if (SUCCEEDED(pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszPath))) {
+                m_files.push_back(pszPath);
+                CoTaskMemFree(pszPath);
+            }
+            pItem->Release();
+        }
+    }
+
+    if (!m_menuItems.empty()) {
+        launchConverter(m_menuItems[0]);
+    }
+    return S_OK;
+}
+
+STDMETHODIMP FFmpegShellExt::GetFlags(EXPCMDFLAGS* pFlags) {
+    *pFlags = ECF_DEFAULT;
+    return S_OK;
+}
+
+STDMETHODIMP FFmpegShellExt::GetIcon(IShellItemArray* psia, LPWSTR* ppszIcon) {
+    std::wstring iconPath = getInstallDir() + L"\\icon.ico";
+    *ppszIcon = (LPWSTR)CoTaskMemAlloc((iconPath.length() + 1) * sizeof(wchar_t));
+    wcscpy_s(*ppszIcon, iconPath.length() + 1, iconPath.c_str());
+    return S_OK;
+}
+
+STDMETHODIMP FFmpegShellExt::EnumSubCommands(IEnumExplorerCommand** ppEnum) {
+    *ppEnum = nullptr;
+    return E_NOTIMPL;
+}
+
+// ========== FFmpegShellExtFactory ==========
+
+STDMETHODIMP FFmpegShellExtFactory::QueryInterface(REFIID riid, void** ppv) {
+    if (riid == IID_IUnknown || riid == IID_IClassFactory) {
+        *ppv = static_cast<IClassFactory*>(this);
+    }
+    else {
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+    AddRef();
+    return S_OK;
+}
+
+STDMETHODIMP_(ULONG) FFmpegShellExtFactory::AddRef() {
+    return InterlockedIncrement(&m_refCount);
+}
+
+STDMETHODIMP_(ULONG) FFmpegShellExtFactory::Release() {
+    LONG r = InterlockedDecrement(&m_refCount);
+    if (r == 0) delete this;
+    return r;
+}
+
+STDMETHODIMP FFmpegShellExtFactory::CreateInstance(IUnknown* pUnkOuter, REFIID riid, void** ppvObject) {
+    if (pUnkOuter) return CLASS_E_NOAGGREGATION;
+    FFmpegShellExt* pExt = new FFmpegShellExt();
+    HRESULT hr = pExt->QueryInterface(riid, ppvObject);
+    pExt->Release();
+    return hr;
+}
+
+STDMETHODIMP FFmpegShellExtFactory::LockServer(BOOL fLock) {
+    return S_OK;
 }

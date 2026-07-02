@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include "resource.h"
+#include "../Core/UninstallRoutine.h"
 
 #pragma comment(lib, "urlmon.lib")
 #pragma comment(lib, "shlwapi.lib")
@@ -252,64 +253,15 @@ DWORD WINAPI uninstallThread(LPVOID) {
             reinterpret_cast<LPARAM>(_wcsdup(msg)));
         };
 
-    wchar_t installDir[MAX_PATH] = {};
-    DWORD sz = sizeof(installDir);
-    HKEY hk;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
-        L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\FFmpegConverter",
-        0, KEY_READ, &hk) != ERROR_SUCCESS) {
+    std::wstring dir = UninstallRoutine::GetInstallDir();
+    if (dir.empty()) {
         fail(L"FFmpeg Converter не найден в системе.");
         return 1;
     }
-    RegQueryValueExW(hk, L"InstallLocation", nullptr, nullptr,
-        reinterpret_cast<BYTE*>(installDir), &sz);
-    RegCloseKey(hk);
 
-    std::wstring dir = installDir;
-
-    PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 20,
-        reinterpret_cast<LPARAM>(L"Отмена регистрации DLL..."));
-    std::wstring dllPath = dir + L"\\ShellExtension.dll";
-    runAndWait(L"regsvr32 /s /u \"" + dllPath + L"\"");
-
-    // Убиваем Explorer чтобы DLL выгрузилась из памяти
-    PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 40,
-        reinterpret_cast<LPARAM>(L"Перезапуск проводника..."));
-    runAndWait(L"taskkill /f /im explorer.exe");
-    Sleep(2000);
-    ShellExecuteW(nullptr, nullptr, L"explorer.exe", nullptr, nullptr, SW_SHOW);
-    Sleep(1500);
-
-    // Очистка реестра
-    PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 70,
-        reinterpret_cast<LPARAM>(L"Очистка реестра..."));
-    RegDeleteTreeW(HKEY_LOCAL_MACHINE,
-        L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\FFmpegConverter");
-
-    // Удаляем папку через cmd отложенно (сам installer.exe там не живёт,
-    // но uninst.exe и DLL уже свободны после перезапуска Explorer)
-    PostMessage(g_hwnd, WM_INSTALL_PROGRESS, 85,
-        reinterpret_cast<LPARAM>(L"Удаление файлов..."));
-
-    wchar_t tempPath[MAX_PATH] = {};
-    GetTempPathW(MAX_PATH, tempPath);
-    std::wstring emptyDir = std::wstring(tempPath) + L"empty_ffmpeg_tmp";
-    CreateDirectoryW(emptyDir.c_str(), nullptr);
-
-    std::wstring delCmd =
-        L"cmd /c timeout /t 2 /nobreak >nul"
-        L" & robocopy \"" + emptyDir + L"\" \"" + dir + L"\" /MIR /NFL /NDL /NJH /NJS >nul"
-        L" & rd /s /q \"" + dir + L"\""
-        L" & rd /s /q \"" + emptyDir + L"\"";
-
-    STARTUPINFOW si{}; si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
-    PROCESS_INFORMATION pi{};
-    CreateProcessW(nullptr, delCmd.data(), nullptr, nullptr,
-        FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
-    if (pi.hProcess) CloseHandle(pi.hProcess);
-    if (pi.hThread)  CloseHandle(pi.hThread);
+    // Используем унифицированную логику удаления
+    // showMessages=false потому что мы показываем прогресс в UI
+    UninstallRoutine::ExecuteUninstall(dir, false, false);
 
     PostMessage(g_hwnd, WM_INSTALL_DONE, 1, 0);
     return 0;

@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <shlobj.h>
 #include <shlwapi.h>
+#include <shobjidl.h>
 #include <string>
 #include <vector>
 #include "GUIDs.h"
@@ -20,7 +21,7 @@ struct MenuItem {
     std::string  ffmpegArgs;
 };
 
-class FFmpegShellExt : public IShellExtInit, public IContextMenu {
+class FFmpegShellExt : public IShellExtInit, public IContextMenu, public IExplorerCommand {
 public:
     FFmpegShellExt();
     virtual ~FFmpegShellExt();
@@ -44,49 +45,38 @@ public:
         UINT* pReserved, CHAR* pszName,
         UINT cchMax) override;
 
+    // IExplorerCommand (Win11+)
+    STDMETHOD(GetTitle)(IShellItemArray* psia, LPWSTR* ppszTitle) override;
+    STDMETHOD(GetToolTip)(IShellItemArray* psia, LPWSTR* ppszInfotip) override;
+    STDMETHOD(GetCanonicalName)(GUID* pguidCommandName) override;
+    STDMETHOD(GetState)(IShellItemArray* psia, BOOL fOkToBeSlow, EXPCMDSTATE* pCmdState) override;
+    STDMETHOD(Invoke)(IShellItemArray* psia, IBindCtx* pbc) override;
+    STDMETHOD(GetFlags)(EXPCMDFLAGS* pFlags) override;
+    STDMETHOD(GetIcon)(IShellItemArray* psia, LPWSTR* ppszIcon) override;
+    STDMETHOD(EnumSubCommands)(IEnumExplorerCommand** ppEnum) override;
+
 private:
     LONG              m_refCount;
-    std::vector<std::wstring> m_files;       
-    std::vector<MenuItem>     m_menuItems;  
-    PresetManager             m_presetManager;
-    UINT                      m_idCmdFirst;
+    std::vector<std::wstring> m_files;
+    std::vector<MenuItem>     m_menuItems;
+    PresetManager     m_presetManager;
+    UINT              m_idCmdFirst;
 
-    std::wstring getInstallDir();
     void buildMenuItems();
+    std::wstring getInstallDir();
     void launchConverter(const MenuItem& item);
 };
 
 class FFmpegShellExtFactory : public IClassFactory {
 public:
-    FFmpegShellExtFactory() : m_ref(1) {}
+    FFmpegShellExtFactory() : m_refCount(1) {}
 
-    STDMETHOD(QueryInterface)(REFIID riid, void** ppv) override {
-        if (riid == IID_IUnknown || riid == IID_IClassFactory) {
-            *ppv = static_cast<IClassFactory*>(this);
-            AddRef();
-            return S_OK;
-        }
-        *ppv = nullptr;
-        return E_NOINTERFACE;
-    }
-    STDMETHOD_(ULONG, AddRef)()  override { return InterlockedIncrement(&m_ref); }
-    STDMETHOD_(ULONG, Release)() override {
-        LONG r = InterlockedDecrement(&m_ref);
-        if (r == 0) delete this;
-        return r;
-    }
-    STDMETHOD(CreateInstance)(IUnknown* pUnkOuter, REFIID riid, void** ppv) override {
-        if (pUnkOuter) return CLASS_E_NOAGGREGATION;
-        FFmpegShellExt* ext = new FFmpegShellExt();
-        HRESULT hr = ext->QueryInterface(riid, ppv);
-        ext->Release();
-        return hr;
-    }
-    STDMETHOD(LockServer)(BOOL) override { return S_OK; }
+    STDMETHOD(QueryInterface)(REFIID riid, void** ppv) override;
+    STDMETHOD_(ULONG, AddRef)() override;
+    STDMETHOD_(ULONG, Release)() override;
+    STDMETHOD(CreateInstance)(IUnknown* pUnkOuter, REFIID riid, void** ppvObject) override;
+    STDMETHOD(LockServer)(BOOL fLock) override;
 
 private:
-    LONG m_ref;
+    LONG m_refCount;
 };
-
-extern LONG g_objectCount;
-extern HMODULE g_hModule;

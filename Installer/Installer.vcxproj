@@ -120,7 +120,8 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalManifestDependencies>
       </AdditionalManifestDependencies>
-      <AdditionalDependencies>user32.lib;gdi32.lib;comctl32.lib;shell32.lib;ole32.lib;advapi32.lib;urlmon.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Core.lib;user32.lib;gdi32.lib;comctl32.lib;shell32.lib;ole32.lib;advapi32.lib;urlmon.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)Release</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -141,7 +142,8 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalManifestDependencies>
       </AdditionalManifestDependencies>
-      <AdditionalDependencies>user32.lib;gdi32.lib;comctl32.lib;shell32.lib;ole32.lib;advapi32.lib;urlmon.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Core.lib;user32.lib;gdi32.lib;comctl32.lib;shell32.lib;ole32.lib;advapi32.lib;urlmon.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)Release</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

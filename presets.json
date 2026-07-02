@@ -115,19 +115,12 @@
       ]
     },
     {
-      "name": "Apple/HEIF",
+      "name": "HEIC/HEIF",
       "extensions": [
         ".heic",
-        ".heif",
-        ".mov",
-        ".m4v"
+        ".heif"
       ],
       "conversions": [
-        {
-          "label": "Convert to MP4 (H.264)",
-          "targetExt": ".mp4",
-          "ffmpegArgs": "-c:v libx264 -c:a aac -preset fast -movflags +faststart"
-        },
         {
           "label": "Convert to JPG",
           "targetExt": ".jpg",
@@ -309,44 +302,6 @@
           "label": "Convert to ICO",
           "targetExt": ".ico",
           "ffmpegArgs": "-vframes 1 -vf scale=256:256"
-        }
-      ]
-    },
-    {
-      "name": "Camera RAW",
-      "extensions": [
-        ".cr2",
-        ".cr3",
-        ".nef",
-        ".arw",
-        ".dng",
-        ".raf",
-        ".orf",
-        ".rw2",
-        ".pef",
-        ".srw",
-        ".raw"
-      ],
-      "conversions": [
-        {
-          "label": "Convert to JPG",
-          "targetExt": ".jpg",
-          "ffmpegArgs": "-vframes 1 -q:v 2"
-        },
-        {
-          "label": "Convert to PNG",
-          "targetExt": ".png",
-          "ffmpegArgs": "-vframes 1"
-        },
-        {
-          "label": "Convert to TIFF",
-          "targetExt": ".tiff",
-          "ffmpegArgs": "-vframes 1"
-        },
-        {
-          "label": "Convert to WebP",
-          "targetExt": ".webp",
-          "ffmpegArgs": "-vframes 1 -quality 90"
         }
       ]
     }
